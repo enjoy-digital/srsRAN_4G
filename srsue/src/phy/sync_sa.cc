@@ -291,6 +291,9 @@ void sync_sa::run_state_cell_camping()
     logger.error("SYNC: detected out-of-sync... skipping slot ...");
     is_pending_tx_end = true;
     nr_worker->release();
+    // The samples of this slot were consumed: advance tti too, else it stays one slot behind the cell timing from now
+    // on (DL and UL processed for the wrong slots, PBCH SFN mismatches).
+    tti = TTI_ADD(tti, 1);
     return;
   }
 
