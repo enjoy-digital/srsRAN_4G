@@ -528,6 +528,24 @@ public:
     }
     trs_measurements.nof_re++;
     trs_measurements_mutex.unlock();
+
+    // Feed the synchronizer (SA): it tracks the CFO from these measurements
+    if (new_meas.snr_dB > 0.0f) {
+      std::lock_guard<std::mutex> lock(sync_feedback_mutex);
+      srsran_combine_csi_trs_measurements(&sync_feedback, &new_meas, &sync_feedback);
+    }
+  }
+
+  /// Takes the measurements accumulated for the synchronizer since the last call
+  bool pop_sync_feedback(srsran_csi_trs_measurements_t& meas)
+  {
+    std::lock_guard<std::mutex> lock(sync_feedback_mutex);
+    if (sync_feedback.nof_re == 0) {
+      return false;
+    }
+    meas          = sync_feedback;
+    sync_feedback = {};
+    return true;
   }
 
   float get_dl_cfo()
@@ -543,6 +561,10 @@ public:
   }
 
   void set_ul_ext_cfo(float ext_cfo_hz) { ul_ext_cfo_hz = ext_cfo_hz; }
+
+private:
+  std::mutex                    sync_feedback_mutex;
+  srsran_csi_trs_measurements_t sync_feedback = {};
 };
 
 } // namespace nr

@@ -136,6 +136,8 @@ bool slot_sync::run_camping(srsran::rf_buffer_t& buffer, srsran::rf_timestamp_t&
   // Set RF timestamp
   *timestamp.get_ptr(0) = outcome.timestamp;
 
+  last_cfo_hz = outcome.cfo_hz;
+
   // Return true if the PHY in-sync
   return outcome.in_sync;
 }

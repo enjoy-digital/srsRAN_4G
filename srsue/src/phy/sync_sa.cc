@@ -294,6 +294,17 @@ void sync_sa::run_state_cell_camping()
     return;
   }
 
+  // SA CFO tracking: the synchronizer corrects the CFO it tracks on the received baseband; feed it the SSB measurements
+  // of the workers (else it keeps the cell search estimate), and pre-compensate the UL for it as well (the workers only
+  // measure what is left), as the LTE synchronizer does in NSA.
+  {
+    srsran_csi_trs_measurements_t fb = {};
+    if (workers.pop_sync_feedback(fb)) {
+      slot_synchronizer.feedback(fb);
+    }
+    workers.set_ul_ext_cfo(slot_synchronizer.get_cfo_hz());
+  }
+
   srsran::phy_common_interface::worker_context_t context;
   context.sf_idx     = tti;
   context.worker_ptr = nr_worker;

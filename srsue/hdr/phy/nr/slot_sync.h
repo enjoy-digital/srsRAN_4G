@@ -39,6 +39,11 @@ public:
 
   srsran_slot_cfg_t get_slot_cfg();
 
+  /// Measurements of the workers (SSB): the synchronizer tracks the CFO and delay from them
+  void feedback(const srsran_csi_trs_measurements_t& meas) { srsran_ue_sync_nr_feedback(&ue_sync_nr, &meas); }
+  /// CFO the synchronizer corrects on the received baseband (Hz)
+  float get_cfo_hz() const { return last_cfo_hz; }
+
 private:
   const static int             MIN_TTI_JUMP = 1;    ///< Time gap reported to stack after receiving subframe
   const static int             MAX_TTI_JUMP = 1000; ///< Maximum time gap tolerance in RF stream metadata
@@ -52,6 +57,7 @@ private:
   bool                         forced_rx_time_init = true; // Rx time sync after first receive from radio
   srsran::rf_buffer_t          sfn_sync_buff       = {};
   srsran_slot_cfg_t            slot_cfg            = {};
+  float                        last_cfo_hz         = 0.0f;
 };
 } // namespace nr
 } // namespace srsue
