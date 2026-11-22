@@ -464,6 +464,16 @@ void rrc_nr::handle_sib1(const sib1_s& sib1)
   fill_phy_pucch_cfg_common(sib1.serving_cell_cfg_common.ul_cfg_common.init_ul_bwp.pucch_cfg_common.setup(),
                             &phy_cfg.pucch.common);
 
+  // Apply TDD UL/DL Config Common: without it the TDD pattern stays empty and no slot is UL (no PUSCH, Msg3 never sent).
+  if (sib1.serving_cell_cfg_common.tdd_ul_dl_cfg_common_present) {
+    srsran_duplex_config_nr_t duplex = {};
+    if (make_phy_tdd_cfg(sib1.serving_cell_cfg_common.tdd_ul_dl_cfg_common, &duplex)) {
+      phy_cfg.duplex = duplex;
+    } else {
+      logger.warning("Could not set TDD UL/DL config from SIB1.");
+    }
+  }
+
   // Apply RACH Config Common
   if (not make_phy_rach_cfg(sib1.serving_cell_cfg_common.ul_cfg_common.init_ul_bwp.rach_cfg_common.setup(),
                             sib1.serving_cell_cfg_common.tdd_ul_dl_cfg_common_present ? SRSRAN_DUPLEX_MODE_TDD
