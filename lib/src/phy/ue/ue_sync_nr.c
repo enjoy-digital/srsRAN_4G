@@ -173,7 +173,7 @@ static int ue_sync_nr_run_track(srsran_ue_sync_nr_t* q, cf_t* buffer)
   // Use SSB periodicity
   if (q->ssb.cfg.periodicity_ms >= 10) {
     // SFN match with the periodicity
-    is_ssb_opportunity = is_ssb_opportunity && (half_frame == 0) && (q->sfn % q->ssb.cfg.periodicity_ms / 10 == 0);
+    is_ssb_opportunity = is_ssb_opportunity && (half_frame == 0) && (q->sfn % (q->ssb.cfg.periodicity_ms / 10) == 0);
   }
 
   if (!is_ssb_opportunity) {
