@@ -297,9 +297,10 @@ float srsran_symbol_distance_s(uint32_t l0, uint32_t l1, srsran_subcarrier_spaci
 
 static bool tdd_nr_is_dl(const srsran_tdd_config_nr_t* cfg, uint32_t numerology, uint32_t slot_idx)
 {
-  // Prevent zero division
+  // No TDD pattern yet (SA, before SIB1, which carries it): any slot can carry the downlink, try them
+  // all, else SIB1 is never received.
   if (cfg->pattern1.period_ms == 0 && cfg->pattern2.period_ms == 0) {
-    return false;
+    return true;
   }
 
   // Calculate slot index within the TDD overall period
