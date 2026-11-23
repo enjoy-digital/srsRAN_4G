@@ -827,6 +827,32 @@ int srsran_dmrs_sch_estimate(srsran_dmrs_sch_t*           q,
   }
   rsrp /= nof_symbols;
   epre /= nof_symbols;
+
+#if DMRS_SCH_SMOOTH_FILTER_LEN
+  // The coherent average over the whole allocation shrinks when the channel is frequency selective, which makes the
+  // noise overestimated on wide allocations. Estimate the noise from the residual between the pilots and their local
+  // smoothed version instead, scaled by the residual gain of the filter for white noise.
+  if (nof_pilots_x_symbol > 2 * DMRS_SCH_SMOOTH_FILTER_LEN) {
+    float res_gain = 0.0f;
+    for (uint32_t j = 0; j < DMRS_SCH_SMOOTH_FILTER_LEN; j++) {
+      float w = q->filter[j] - ((j == DMRS_SCH_SMOOTH_FILTER_LEN / 2) ? 1.0f : 0.0f);
+      res_gain += w * w;
+    }
+    float n0_local = 0.0f;
+    for (uint32_t i = 0; i < nof_symbols; i++) {
+      cf_t* p = &q->pilot_estimates[nof_pilots_x_symbol * i];
+      srsran_conv_same_cf(p, q->filter, q->temp, nof_pilots_x_symbol, DMRS_SCH_SMOOTH_FILTER_LEN);
+      srsran_vec_sub_ccc(p, q->temp, q->temp, nof_pilots_x_symbol);
+      // Skip the extrapolated edges
+      uint32_t e = DMRS_SCH_SMOOTH_FILTER_LEN / 2;
+      n0_local += srsran_vec_avg_power_cf(&q->temp[e], nof_pilots_x_symbol - 2 * e);
+    }
+    n0_local /= (float)nof_symbols * res_gain;
+    if (isnormal(n0_local) && n0_local < epre) {
+      rsrp = epre - n0_local;
+    }
+  }
+#endif // DMRS_SCH_SMOOTH_FILTER_LEN
   rsrp = SRSRAN_MIN(rsrp, epre - epre * 1e-7);
 
   // Measure CFO if more than one symbol is used
@@ -834,7 +860,10 @@ int srsran_dmrs_sch_estimate(srsran_dmrs_sch_t*           q,
   float cfo_hz_max = INFINITY;
   for (uint32_t i = 0; i < nof_symbols - 1; i++) {
     float time_diff  = srsran_symbol_distance_s(symbols[i], symbols[i + 1], q->carrier.scs);
-    float phase_diff = cargf(corr[i + 1] * conjf(corr[i]));
+    // Per-subcarrier phase difference, robust to a frequency selective channel over the allocation
+    float phase_diff = cargf(srsran_vec_dot_prod_conj_ccc(&q->pilot_estimates[nof_pilots_x_symbol * (i + 1)],
+                                                          &q->pilot_estimates[nof_pilots_x_symbol * i],
+                                                          nof_pilots_x_symbol));
 
     if (isnormal(time_diff)) {
       cfo_avg_hz += phase_diff / (2.0f * M_PI * time_diff * (nof_symbols - 1));
@@ -906,8 +935,9 @@ int srsran_dmrs_sch_estimate(srsran_dmrs_sch_t*           q,
 
 #if DMRS_SCH_SMOOTH_FILTER_LEN
   // Apply smoothing filter
-  srsran_conv_same_cf(
-      q->pilot_estimates, q->filter, q->pilot_estimates, nof_pilots_x_symbol, DMRS_SCH_SMOOTH_FILTER_LEN);
+  // Not in place: the convolution reads input samples it has already written
+  srsran_conv_same_cf(q->pilot_estimates, q->filter, q->temp, nof_pilots_x_symbol, DMRS_SCH_SMOOTH_FILTER_LEN);
+  srsran_vec_cf_copy(q->pilot_estimates, q->temp, nof_pilots_x_symbol);
 #endif // DMRS_SCH_SMOOTH_FILTER_LEN
 
   // Frequency domain interpolate
