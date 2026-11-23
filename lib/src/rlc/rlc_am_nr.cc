@@ -434,19 +434,20 @@ uint32_t rlc_am_nr_tx::build_retx_pdu(uint8_t* payload, uint32_t nof_bytes)
     return 0;
   }
 
-  rlc_amd_retx_nr_t& retx = retx_queue.front();
-
-  // Sanity check - drop any retx SNs not present in tx_window
-  while (not tx_window->has_sn(retx.sn)) {
-    RlcInfo("SN=%d not in tx window, probably already ACKed. Skip and remove from retx queue", retx.sn);
+  // Sanity check - drop any retx SNs not present in tx_window. A pointer, not a reference: assigning the next front to
+  // a reference would copy it into the slot just popped, and the (re-)segmentation progress below would then be
+  // recorded on that stale copy instead of the queued retx (the same segment sent again and again).
+  rlc_amd_retx_nr_t* retx_ptr = &retx_queue.front();
+  while (not tx_window->has_sn(retx_ptr->sn)) {
+    RlcInfo("SN=%d not in tx window, probably already ACKed. Skip and remove from retx queue", retx_ptr->sn);
     retx_queue.pop();
-    if (!retx_queue.empty()) {
-      retx = retx_queue.front();
-    } else {
+    if (retx_queue.empty()) {
       RlcInfo("empty retx queue, cannot provide any retx PDU");
       return 0;
     }
+    retx_ptr = &retx_queue.front();
   }
+  rlc_amd_retx_nr_t& retx = *retx_ptr;
 
   RlcDebug("RETX - SN=%d, is_segment=%s, current_so=%d, so_start=%d, segment_length=%d",
            retx.sn,
@@ -906,7 +907,10 @@ void rlc_am_nr_tx::handle_nack(const rlc_status_nack_t& nack, std::set<uint32_t>
         }
         bool segment_found = false;
         for (const rlc_amd_tx_pdu_nr::pdu_segment& segm : pdu.segment_list) {
-          if (segm.so >= nack.so_start && segm.so <= nack.so_end) {
+          // Every segment that overlaps the missing bytes, also one that starts before so_start (the receiver got its
+          // first bytes): a segment is only retransmitted whole.
+          const uint32_t segm_end = segm.so + (segm.payload_len > 0 ? segm.payload_len - 1 : 0);
+          if (segm.so <= nack.so_end && segm_end >= nack.so_start) {
             if (not retx_queue.has_sn(nack.nack_sn, segm.so)) {
               rlc_amd_retx_nr_t& retx = retx_queue.push();
               retx.sn                 = nack.nack_sn;
