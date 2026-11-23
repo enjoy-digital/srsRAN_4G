@@ -56,7 +56,13 @@ bool sync_sa::init(const args_t& args, stack_interface_phy_nr* stack_, srsran::r
 
   // Thread control
   running = true;
-  start(args.thread_priority);
+  // On its own CPU, the slot receive thread (highest priority) does not preempt the workers, which write the TX
+  // samples: a worker held off for longer than the TX lead makes the radio underflow.
+  if (args.cpu_affinity >= 0) {
+    start_cpu(args.thread_priority, args.cpu_affinity);
+  } else {
+    start(args.thread_priority);
+  }
 
   // If reached here it was successful
   return true;

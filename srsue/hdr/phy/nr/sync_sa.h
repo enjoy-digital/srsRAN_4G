@@ -36,6 +36,7 @@ public:
     float                       pbch_dmrs_thr   = 0.0f; ///< PBCH DMRS correlation detection threshold (0 means auto)
     float                       cfo_alpha       = 0.0f; ///< CFO averaging alpha (0 means auto)
     int                         thread_priority = 1;
+    int                         cpu_affinity    = -1; ///< CPU of the thread, -1 for any
 
     cell_search::args_t get_cell_search() const
     {

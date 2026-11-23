@@ -71,6 +71,7 @@ int ue::init(const all_args_t& args_)
   phy_args_nr.nof_carriers         = args.phy.nof_nr_carriers;
   phy_args_nr.nof_phy_threads      = args.phy.nof_phy_threads;
   phy_args_nr.worker_cpu_mask      = args.phy.worker_cpu_mask;
+  phy_args_nr.sync_cpu_affinity    = args.phy.sync_cpu_affinity;
   phy_args_nr.log                  = args.phy.log;
   phy_args_nr.store_pdsch_ko       = args.phy.nr_store_pdsch_ko;
   phy_args_nr.srate_hz             = args.rf.srate_hz;
