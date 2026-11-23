@@ -3,6 +3,7 @@
 
 #include "srsue/hdr/phy/nr/sync_sa.h"
 #include "srsran/radio/rf_buffer.h"
+#include <cmath>
 
 namespace srsue {
 namespace nr {
@@ -35,6 +36,9 @@ bool sync_sa::init(const args_t& args, stack_interface_phy_nr* stack_, srsran::r
     logger.error("Error initialising slot synchronizer");
     return false;
   }
+
+  // SA: the workers transmit NR_SA_TX_DELAY_MS after the received slot (see last_rx_time in run_slot)
+  workers.set_tx_delay_ms(NR_SA_TX_DELAY_MS);
 
   // Cell bandwidth must be provided at init so set now sampling rate
   radio->set_rx_srate(args.srate_hz);
@@ -118,8 +122,10 @@ cell_search::ret_t sync_sa::cell_search_run(const cell_search::cfg_t& cfg)
 {
   std::unique_lock<std::mutex> ul(rrc_mutex);
 
-  cs_ret        = {};
-  cs_ret.result = cell_search::ret_t::ERROR;
+  cs_ret                = {};
+  cs_ret.result         = cell_search::ret_t::ERROR;
+  cell_search_cfo_valid = false; // A new search invalidates the previous estimate
+  cell_search_ssb_hz    = cfg.ssb_freq_hz;
 
   // Wait the FSM to transition to IDLE
   if (!wait_idle()) {
@@ -185,8 +191,12 @@ rrc_interface_phy_nr::cell_select_result_t sync_sa::cell_select_run(const phy_in
 
   // Start the CFO tracking from the cell search estimate: the SSB tracking measures only a few kHz without ambiguity, so
   // from zero it can lock on an alias when the oscillators of the UE and the cell are far apart (no SIB1).
-  slot_synchronizer.set_cfo_hz(cell_search_cfo_hz);
-  logger.info("Cell Select: initial CFO %+.0f Hz from the cell search", cell_search_cfo_hz);
+  // Only for the cell that search found.
+  if (cell_search_cfo_valid and cell_search_pci == req.carrier.pci and
+      std::abs(cell_search_ssb_hz - req.ssb_cfg.ssb_freq_hz) < 1.0) {
+    slot_synchronizer.set_cfo_hz(cell_search_cfo_hz);
+    logger.info("Cell Select: initial CFO %+.0f Hz from the cell search", cell_search_cfo_hz);
+  }
 
   // SFN synchronization
   phy_state.run_sfn_sync();
@@ -252,7 +262,9 @@ void sync_sa::run_state_cell_search()
 
   // Leave CELL_SEARCH state if error or success and transition to IDLE
   if (cs_ret.result == cell_search::ret_t::CELL_FOUND) {
-    cell_search_cfo_hz = cs_ret.ssb_res.measurements.cfo_hz;
+    cell_search_cfo_hz    = cs_ret.ssb_res.measurements.cfo_hz;
+    cell_search_pci       = cs_ret.ssb_res.N_id;
+    cell_search_cfo_valid = true;
   }
   if (cs_ret.result == cell_search::ret_t::CELL_FOUND || cell_search_nof_trials >= cell_search_max_trials) {
     phy_state.state_exit();
@@ -308,19 +320,13 @@ void sync_sa::run_state_cell_camping()
   // SA CFO tracking: the synchronizer corrects the CFO it tracks on the received baseband; feed it the SSB measurements
   // of the workers (else it keeps the cell search estimate), and pre-compensate the UL for it as well (the workers only
   // measure what is left), as the LTE synchronizer does in NSA.
-  {
-    srsran_csi_trs_measurements_t fb = {};
-    if (workers.pop_sync_feedback(fb)) {
-      slot_synchronizer.feedback(fb);
-    }
-    workers.set_ul_ext_cfo(slot_synchronizer.get_cfo_hz());
-  }
+  workers.set_ul_ext_cfo(slot_synchronizer.get_cfo_hz());
 
   srsran::phy_common_interface::worker_context_t context;
   context.sf_idx     = tti;
   context.worker_ptr = nr_worker;
   context.last       = true; // Set last if standalone
-  last_rx_time.add(FDD_HARQ_DELAY_DL_MS * 1e-3);
+  last_rx_time.add(NR_SA_TX_DELAY_MS * 1e-3);
   context.tx_time.copy(last_rx_time);
   // Apply current TA
   context.tx_time.sub((double)ta.get_sec());

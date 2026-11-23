@@ -79,6 +79,7 @@ int srsran_ue_sync_nr_set_cfg(srsran_ue_sync_nr_t* q, const srsran_ue_sync_nr_cf
   }
 
   // Transition to find
+  q->pbch_miss = 0;
   q->state = SRSRAN_UE_SYNC_NR_STATE_FIND;
 
   return SRSRAN_SUCCESS;
@@ -188,15 +189,14 @@ static int ue_sync_nr_run_track(srsran_ue_sync_nr_t* q, cf_t* buffer)
 
   // If the PBCH message was NOT decoded: keep tracking (the slot count goes on) through a
   // few consecutive misses, e.g. a burst of interference on one SSB; only then search again.
-  static uint32_t pbch_miss = 0;
   if (!pbch_msg.crc) {
-    if (++pbch_miss >= 4) {
-      pbch_miss = 0;
+    if (++q->pbch_miss >= 4) {
+      q->pbch_miss = 0;
       q->state  = SRSRAN_UE_SYNC_NR_STATE_FIND;
     }
     return SRSRAN_SUCCESS;
   }
-  pbch_miss = 0;
+  q->pbch_miss = 0;
 
   return ue_sync_nr_update_ssb(q, &measurements, &pbch_msg);
 }

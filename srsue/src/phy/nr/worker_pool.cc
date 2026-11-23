@@ -87,7 +87,7 @@ sf_worker* worker_pool::wait_worker(uint32_t tti)
   }
 
   // Generate PRACH if ready
-  if (prach_buffer->is_ready_to_send(tti, pci)) {
+  if (prach_buffer->is_ready_to_send(tti, pci, phy_state.get_tx_delay_ms())) {
     prach_ptr = prach_buffer->generate(phy_state.get_ul_cfo() / 15000, &prach_nof_sf, &prach_target_power);
 
     // Scale signal to maximum
@@ -112,7 +112,11 @@ sf_worker* worker_pool::wait_worker(uint32_t tti)
 
     // Notify MAC about PRACH transmission
     phy_state.stack->prach_sent(
-        TTI_TX(tti), srsran_prach_nr_start_symbol(config_idx, mode), SRSRAN_SLOT_NR_MOD(scs, TTI_TX(tti)), 0, 0);
+        phy_state.tti_tx(tti),
+        srsran_prach_nr_start_symbol(config_idx, mode),
+        SRSRAN_SLOT_NR_MOD(scs, phy_state.tti_tx(tti)),
+        0,
+        0);
   }
 
   // Set PRACH transmission buffer in workers if it is pending

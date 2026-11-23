@@ -23,7 +23,8 @@ public:
   void  stop();
   bool  set_cell(srsran_cell_t cell, srsran_prach_cfg_t prach_cfg);
   bool  prepare_to_send(uint32_t preamble_idx, int allowed_subframe = -1, float target_power_dbm = -1);
-  bool  is_ready_to_send(uint32_t current_tti, uint32_t current_pci);
+  /// tx_delay_ms: slots between the current (RX) TTI and the TX TTI (NR SA runs with NR_SA_TX_DELAY_MS)
+  bool  is_ready_to_send(uint32_t current_tti, uint32_t current_pci, uint32_t tx_delay_ms = FDD_HARQ_DELAY_DL_MS);
   bool  is_pending() const;
   cf_t* generate(float cfo, uint32_t* nof_sf, float* target_power = NULL);
 

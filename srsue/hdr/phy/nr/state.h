@@ -10,6 +10,7 @@
 #include "srsran/interfaces/ue_nr_interfaces.h"
 #include "srsran/srsran.h"
 #include <array>
+#include <atomic>
 #include <mutex>
 #include <vector>
 
@@ -331,7 +332,7 @@ public:
 
       // Check if the SR resource ID is pending
       if (args.fixed_sr.count(sr_id) > 0 ||
-          stack->sr_opportunity(tti, sr_id, false, pending_ul_grant[TTI_TX(tti)].enable)) {
+          stack->sr_opportunity(tti, sr_id, false, pending_ul_grant[tti_tx(tti)].enable)) {
         // Count it as present
         sr_count_positive++;
       }
@@ -528,25 +529,12 @@ public:
     }
     trs_measurements.nof_re++;
     trs_measurements_mutex.unlock();
-
-    // Feed the synchronizer (SA): it tracks the CFO from these measurements
-    if (new_meas.snr_dB > 0.0f) {
-      std::lock_guard<std::mutex> lock(sync_feedback_mutex);
-      srsran_combine_csi_trs_measurements(&sync_feedback, &new_meas, &sync_feedback);
-    }
   }
 
-  /// Takes the measurements accumulated for the synchronizer since the last call
-  bool pop_sync_feedback(srsran_csi_trs_measurements_t& meas)
-  {
-    std::lock_guard<std::mutex> lock(sync_feedback_mutex);
-    if (sync_feedback.nof_re == 0) {
-      return false;
-    }
-    meas          = sync_feedback;
-    sync_feedback = {};
-    return true;
-  }
+  /// Delay between the RX slot and the TX slot of the workers (NSA: FDD_HARQ_DELAY_DL_MS, SA: NR_SA_TX_DELAY_MS)
+  void     set_tx_delay_ms(uint32_t delay_ms) { tx_delay_ms = delay_ms; }
+  uint32_t tti_tx(uint32_t tti) const { return TTI_ADD(tti, tx_delay_ms); }
+  uint32_t get_tx_delay_ms() const { return tx_delay_ms; }
 
   float get_dl_cfo()
   {
@@ -563,8 +551,7 @@ public:
   void set_ul_ext_cfo(float ext_cfo_hz) { ul_ext_cfo_hz = ext_cfo_hz; }
 
 private:
-  std::mutex                    sync_feedback_mutex;
-  srsran_csi_trs_measurements_t sync_feedback = {};
+  std::atomic<uint32_t> tx_delay_ms = {FDD_HARQ_DELAY_DL_MS};
 };
 
 } // namespace nr

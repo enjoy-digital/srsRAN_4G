@@ -466,12 +466,18 @@ void rrc_nr::handle_sib1(const sib1_s& sib1)
 
   // Apply TDD UL/DL Config Common: without it the TDD pattern stays empty and no slot is UL (no PUSCH, Msg3 never sent).
   if (sib1.serving_cell_cfg_common.tdd_ul_dl_cfg_common_present) {
-    srsran_duplex_config_nr_t duplex = {};
-    if (make_phy_tdd_cfg(sib1.serving_cell_cfg_common.tdd_ul_dl_cfg_common, &duplex)) {
-      phy_cfg.duplex = duplex;
-    } else {
-      logger.warning("Could not set TDD UL/DL config from SIB1.");
+    const asn1::rrc_nr::tdd_ul_dl_cfg_common_s& tdd = sib1.serving_cell_cfg_common.tdd_ul_dl_cfg_common;
+    // The NR PHY workers run numerology 0 only
+    if (tdd.ref_subcarrier_spacing != asn1::rrc_nr::subcarrier_spacing_opts::khz15) {
+      logger.error("TDD UL/DL config of SIB1: reference SCS %s not supported", tdd.ref_subcarrier_spacing.to_string());
+      return;
     }
+    srsran_duplex_config_nr_t duplex = {};
+    if (not make_phy_tdd_cfg(tdd, &duplex)) {
+      logger.error("Could not set TDD UL/DL config from SIB1.");
+      return;
+    }
+    phy_cfg.duplex = duplex;
   }
 
   // Apply RACH Config Common

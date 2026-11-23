@@ -94,7 +94,7 @@ void cc_worker::update_cfg(const srsran::phy_cfg_nr_t& new_config)
 void cc_worker::set_tti(uint32_t tti)
 {
   dl_slot_cfg.idx = tti;
-  ul_slot_cfg.idx = TTI_TX(tti);
+  ul_slot_cfg.idx = phy.tti_tx(tti);
   logger.set_context(tti);
 }
 

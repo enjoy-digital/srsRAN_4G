@@ -54,7 +54,7 @@ public:
    * @param ext_cfo_hz External CFO in Hz
    */
   void set_ul_ext_cfo(float ext_cfo_hz) { phy_state.set_ul_ext_cfo(ext_cfo_hz); }
-  bool pop_sync_feedback(srsran_csi_trs_measurements_t& meas) { return phy_state.pop_sync_feedback(meas); }
+  void set_tx_delay_ms(uint32_t delay_ms) { phy_state.set_tx_delay_ms(delay_ms); }
 };
 
 } // namespace nr

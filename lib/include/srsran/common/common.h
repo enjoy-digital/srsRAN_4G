@@ -27,8 +27,11 @@
 
 #define SRSRAN_N_MCH_LCIDS 32
 
-#define FDD_HARQ_DELAY_DL_MS 3
-#define FDD_HARQ_DELAY_UL_MS 3
+#define FDD_HARQ_DELAY_DL_MS 4
+#define FDD_HARQ_DELAY_UL_MS 4
+// NR SA: delay between the RX slot and the TX slot of the UE PHY workers (the NR PHY state defaults to
+// FDD_HARQ_DELAY_DL_MS, as in NSA). 3 ms lets the UE meet k1/k2 = 3..4 slots at 15 kHz SCS.
+#define NR_SA_TX_DELAY_MS 3
 #define MSG3_DELAY_MS 2 // Delay added to FDD_HARQ_DELAY_DL_MS
 
 #define TTI_SUB(a, b) ((((a) + 10240) - (b)) % 10240)

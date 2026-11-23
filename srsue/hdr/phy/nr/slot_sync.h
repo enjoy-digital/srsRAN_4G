@@ -39,8 +39,6 @@ public:
 
   srsran_slot_cfg_t get_slot_cfg();
 
-  /// Measurements of the workers (SSB): the synchronizer tracks the CFO and delay from them
-  void feedback(const srsran_csi_trs_measurements_t& meas) { srsran_ue_sync_nr_feedback(&ue_sync_nr, &meas); }
   /// CFO the synchronizer corrects on the received baseband (Hz)
   float get_cfo_hz() const { return last_cfo_hz; }
   /// Initial CFO of the synchronizer (Hz), e.g. the cell search estimate

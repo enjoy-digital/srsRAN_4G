@@ -143,13 +143,13 @@ bool prach::is_pending() const
   return false;
 }
 
-bool prach::is_ready_to_send(uint32_t current_tti_, uint32_t current_pci)
+bool prach::is_ready_to_send(uint32_t current_tti_, uint32_t current_pci, uint32_t tx_delay_ms)
 {
   // Make sure the curernt PCI is the one we configured the PRACH for
   if (is_pending() && current_pci == cell.id) {
     std::lock_guard<std::mutex> lock(mutex);
     // consider the number of subframes the transmission must be anticipated
-    uint32_t tti_tx = TTI_TX(current_tti_);
+    uint32_t tti_tx = TTI_ADD(current_tti_, tx_delay_ms);
     if (srsran_prach_tti_opportunity(&prach_obj, tti_tx, allowed_subframe)) {
       Debug("PRACH Buffer: Ready to send at tti: %d (now is %d)", tti_tx, current_tti_);
       transmitted_tti = tti_tx;

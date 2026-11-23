@@ -74,6 +74,7 @@ typedef struct SRSRAN_API {
   uint32_t N_id;     ///< Current physical cell identifier
   double   srate_hz; ///< Current sampling rate in Hz
   uint32_t sf_sz;    ///< Current subframe size
+  uint32_t pbch_miss; ///< Consecutive PBCH CRC failures while tracking
 
   // Metrics
   float cfo_hz;       ///< Current CFO in Hz
