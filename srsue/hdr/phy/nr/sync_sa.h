@@ -102,6 +102,7 @@ private:
   uint32_t                     cell_search_nof_trials = 0;
   const static uint32_t        cell_search_max_trials = 100;
   uint32_t                     sfn_sync_nof_trials    = 0;
+  uint32_t                     context_tti_rebased    = 0; ///< Times the slot index was realigned on the synchronizer
   const static uint32_t        sfn_sync_max_trials    = 100;
 
   cell_search::ret_t cs_ret;

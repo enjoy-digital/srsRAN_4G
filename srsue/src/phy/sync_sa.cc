@@ -198,14 +198,28 @@ rrc_interface_phy_nr::cell_select_result_t sync_sa::cell_select_run(const phy_in
   // Start the CFO tracking from the cell search estimate: the SSB tracking measures only a few kHz without ambiguity, so
   // from zero it can lock on an alias when the oscillators of the UE and the cell are far apart (no SIB1).
   // Only for the cell that search found.
-  if (cell_search_cfo_valid and cell_search_pci == req.carrier.pci and
-      std::abs(cell_search_ssb_hz - req.ssb_cfg.ssb_freq_hz) < 1.0) {
-    slot_synchronizer.set_cfo_hz(cell_search_cfo_hz);
-    logger.info("Cell Select: initial CFO %+.0f Hz from the cell search", cell_search_cfo_hz);
-  }
+  const bool use_cs_cfo = cell_search_cfo_valid and cell_search_pci == req.carrier.pci and
+                          std::abs(cell_search_ssb_hz - req.ssb_cfg.ssb_freq_hz) < 1.0;
 
-  // SFN synchronization
-  phy_state.run_sfn_sync();
+  // SFN synchronization. A few attempts (each up to sfn_sync_max_trials slots): a burst of SSB misses must not end the
+  // cell selection, which the upper layers do not retry. The middle attempt starts from no CFO, in case the cell search
+  // estimate was off.
+  for (uint32_t attempt = 0; attempt < 3 and not phy_state.is_camping(); attempt++) {
+    const float cfo_hz = (use_cs_cfo and attempt != 1) ? cell_search_cfo_hz : 0.0f;
+    if (attempt > 0) {
+      logger.warning("Cell Select: SFN synchronization attempt %d failed, retrying (initial CFO %+.0f Hz)",
+                     attempt,
+                     cfo_hz);
+      if (slot_synchronizer.set_sync_cfg(cfg)) {
+        logger.error("Cell Search: Failed setting slot synchronizer configuration");
+        return result;
+      }
+    }
+    slot_synchronizer.set_cfo_hz(cfo_hz);
+    logger.info("Cell Select: initial CFO %+.0f Hz", cfo_hz);
+    sfn_sync_nof_trials = 0; // per attempt (it was never reset, so a later selection could give up at once)
+    phy_state.run_sfn_sync();
+  }
 
   // Determine if the procedure was successful if the current state is camping, otherwise it is unsuccessful
   if (phy_state.is_camping()) {
@@ -321,6 +335,16 @@ void sync_sa::run_state_cell_camping()
     // on (DL and UL processed for the wrong slots, PBCH SFN mismatches).
     tti = TTI_ADD(tti, 1);
     return;
+  }
+
+  // The synchronizer re-derives the slot from each decoded SSB: keep the slot index of the workers on it. Otherwise,
+  // once they differ (a reacquisition after a loss, samples lost), every slot is processed with the wrong index for
+  // good (PBCH CRC failures on every SSB, UL in the wrong slots). Its outcome is the slot after the received one.
+  const uint32_t sync_tti = TTI_SUB(slot_synchronizer.get_slot_cfg().idx, 1);
+  if (sync_tti != tti) {
+    logger.warning("SYNC: slot index %d differs from the synchronizer (%d), realigning", tti, sync_tti);
+    tti = sync_tti;
+    context_tti_rebased++;
   }
 
   // SA CFO tracking: the synchronizer corrects the CFO it tracks on the received baseband; feed it the SSB measurements
