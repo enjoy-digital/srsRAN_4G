@@ -183,6 +183,11 @@ rrc_interface_phy_nr::cell_select_result_t sync_sa::cell_select_run(const phy_in
     return result;
   }
 
+  // Start the CFO tracking from the cell search estimate: the SSB tracking measures only a few kHz without ambiguity, so
+  // from zero it can lock on an alias when the oscillators of the UE and the cell are far apart (no SIB1).
+  slot_synchronizer.set_cfo_hz(cell_search_cfo_hz);
+  logger.info("Cell Select: initial CFO %+.0f Hz from the cell search", cell_search_cfo_hz);
+
   // SFN synchronization
   phy_state.run_sfn_sync();
 
@@ -246,6 +251,9 @@ void sync_sa::run_state_cell_search()
   cell_search_nof_trials++;
 
   // Leave CELL_SEARCH state if error or success and transition to IDLE
+  if (cs_ret.result == cell_search::ret_t::CELL_FOUND) {
+    cell_search_cfo_hz = cs_ret.ssb_res.measurements.cfo_hz;
+  }
   if (cs_ret.result == cell_search::ret_t::CELL_FOUND || cell_search_nof_trials >= cell_search_max_trials) {
     phy_state.state_exit();
   }

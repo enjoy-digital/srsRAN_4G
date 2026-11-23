@@ -77,6 +77,7 @@ public:
 private:
   stack_interface_phy_nr*      stack = nullptr; ///< Stand-Alone RRC interface
   srsran::radio_interface_phy* radio = nullptr; ///< Radio object
+  float                        cell_search_cfo_hz = 0.0f; ///< CFO estimated by the last successful cell search
   srslog::basic_logger&        logger;          ///< General PHY logger
   worker_pool&                 workers;
 

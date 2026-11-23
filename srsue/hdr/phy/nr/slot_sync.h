@@ -43,6 +43,8 @@ public:
   void feedback(const srsran_csi_trs_measurements_t& meas) { srsran_ue_sync_nr_feedback(&ue_sync_nr, &meas); }
   /// CFO the synchronizer corrects on the received baseband (Hz)
   float get_cfo_hz() const { return last_cfo_hz; }
+  /// Initial CFO of the synchronizer (Hz), e.g. the cell search estimate
+  void set_cfo_hz(float cfo_hz) { ue_sync_nr.cfo_hz = cfo_hz; }
 
 private:
   const static int             MIN_TTI_JUMP = 1;    ///< Time gap reported to stack after receiving subframe
