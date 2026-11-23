@@ -91,9 +91,13 @@ void sf_worker::work_imp()
     return;
   }
 
-  // Perform UL processing
+  // Perform UL processing. A failed UL slot (encoding error, missing MAC PDU) is sent as zeros: the TX buffer would
+  // otherwise still hold the samples of an earlier slot.
   for (auto& w : cc_workers) {
-    w.get()->work_ul();
+    if (not w.get()->work_ul()) {
+      srsran_vec_cf_zero(w.get()->get_tx_buffer(0), sf_len);
+      logger.warning("UL processing failed, slot transmitted as zeros");
+    }
   }
 
   // Set Tx buffers

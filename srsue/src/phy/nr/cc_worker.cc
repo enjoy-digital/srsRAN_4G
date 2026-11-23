@@ -616,7 +616,10 @@ bool cc_worker::work_ul()
     }
 
     // Set UCI configuration following procedures
-    srsran_ra_ul_set_grant_uci_nr(&cfg.carrier, &cfg.pusch, &uci_data.cfg, &pusch_cfg);
+    if (srsran_ra_ul_set_grant_uci_nr(&cfg.carrier, &cfg.pusch, &uci_data.cfg, &pusch_cfg) < SRSRAN_SUCCESS) {
+      ERROR("Setting UCI on PUSCH grant");
+      return false;
+    }
 
     // Assigning MAC provided values to PUSCH config structs
     pusch_cfg.grant.tb[0].softbuffer.tx = ul_action.tb.softbuffer;
