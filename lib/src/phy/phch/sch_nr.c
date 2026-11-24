@@ -612,10 +612,11 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
     uint32_t E = sch_nr_get_E(&cfg, j);
     j++;
 
-    // Skip CB if it has a matched CRC
+    // Skip CB if it has a matched CRC (its E soft bits are still in the input: step over them)
     if (decoded) {
       SCH_INFO_RX("RM CB %d: CRC OK ... Skipping", r);
       cb_ok++;
+      input_ptr += E;
       continue;
     }
 
