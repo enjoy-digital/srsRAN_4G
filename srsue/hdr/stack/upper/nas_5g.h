@@ -52,10 +52,13 @@ public:
   int      get_k_amf(srsran::as_key_t& k_amf);
   uint32_t get_ul_nas_count();
 
-  int write_pdu(srsran::unique_byte_buffer_t pdu);
+  int  write_pdu(srsran::unique_byte_buffer_t pdu);
+  void connection_request_completed(bool success);
+  void left_rrc_connected();
 
   // timer callback
   void timer_expired(uint32_t timeout_id);
+  void abort_registration(const char* reason);
 
   // Stack interface
   int switch_on();
@@ -74,6 +77,7 @@ private:
 
   bool                                             running             = false;
   bool                                             has_sec_ctxt        = false;
+  uint32_t                                         registration_attempt_counter = 0;
   bool                                             initial_sec_command = false;
   srsran::nas_5g::mobile_identity_5gs_t::guti_5g_s guti_5g;
 
@@ -108,6 +112,7 @@ private:
   const uint32_t t3511_duration_ms                = 10 * 1000;      // 10s
   const uint32_t t3521_duration_ms                = 15 * 1000;      // 15s
   const uint32_t reregistration_timer_duration_ms = 2 * 1000;       // 2s (arbitrarily chosen to delay re-attach)
+  const uint32_t max_registration_attempts        = 5;              // TS 24.501 Sec 5.5.1.2.7
 
   srsran::proc_manager_list_t callbacks;
 

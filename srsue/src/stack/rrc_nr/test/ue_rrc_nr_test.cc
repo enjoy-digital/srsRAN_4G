@@ -111,6 +111,8 @@ class dummy_nas : public nas_5g_interface_rrc_nr
   int      write_pdu(srsran::unique_byte_buffer_t pdu) { return SRSRAN_SUCCESS; };
   int      get_k_amf(srsran::as_key_t& k_amf) { return SRSRAN_SUCCESS; };
   uint32_t get_ul_nas_count() { return SRSRAN_SUCCESS; };
+  void     connection_request_completed(bool success){};
+  void     left_rrc_connected(){};
 };
 
 class dummy_sim : public usim_interface_rrc_nr

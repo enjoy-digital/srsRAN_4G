@@ -104,7 +104,7 @@ void nas_5g::run_tti()
     case mm5g_state_t::state_t::deregistered:
       // TODO Make sure cell selection is finished after transitioning from another state (if required)
       // Make sure the RRC is finished transitioning to RRC Idle
-      if (reregistration_timer.is_running()) {
+      if (reregistration_timer.is_running() or t3511.is_running() or t3502.is_running()) {
         logger.debug("Waiting for re-attach timer to expire to attach again.");
         return;
       }
@@ -789,7 +789,8 @@ int nas_5g::handle_registration_accept(registration_accept_t& registration_accep
     send_reg_complete = true;
   }
 
-  // TODO: reset counters and everything what is needed by the specification
+  t3510.stop();
+  registration_attempt_counter = 0;
   t3521.set(registration_accept.t3512_value.timer_value);
   registration_proc.run();
   state.set_registered(mm5g_state_t::registered_substate_t::normal_service);
@@ -805,6 +806,7 @@ int nas_5g::handle_registration_accept(registration_accept_t& registration_accep
 int nas_5g::handle_registration_reject(registration_reject_t& registration_reject)
 {
   logger.info("Handling Registration Reject");
+  t3510.stop();
   has_sec_ctxt = false;
   ctxt_base.rx_count++;
   state.set_deregistered(mm5g_state_t::deregistered_substate_t::plmn_search);
@@ -1052,7 +1054,71 @@ int nas_5g::handle_configuration_update_command(
  ******************************************************************************/
 void nas_5g::timer_expired(uint32_t timeout_id)
 {
-  // TODO
+  if (timeout_id == t3510.id()) {
+    abort_registration("T3510 expired");
+  } else if (timeout_id == t3511.id() or timeout_id == t3502.id()) {
+    logger.info("Timer %s expired, registration will be attempted again", timeout_id == t3511.id() ? "T3511" : "T3502");
+  }
+}
+
+void nas_5g::connection_request_completed(bool success)
+{
+  if (not success) {
+    abort_registration("RRC connection establishment failed");
+  }
+}
+
+void nas_5g::left_rrc_connected()
+{
+  if (state.get_state() == mm5g_state_t::state_t::registered_initiated) {
+    abort_registration("RRC connection released");
+    return;
+  }
+  if (state.get_state() != mm5g_state_t::state_t::registered) {
+    return;
+  }
+  // The UE has no Service Request procedure yet: register again from scratch to restore the PDU sessions.
+  logger.warning("RRC connection released while registered, registering again");
+  srsran::console("RRC connection released, registering again\n");
+  if (pdu_session_establishment_proc.is_busy()) {
+    pdu_session_establishment_proc.run();
+  }
+  reset_pdu_sessions();
+  has_sec_ctxt        = false;
+  initial_sec_command = true;
+  ctxt_base.rx_count  = 0;
+  ctxt_base.tx_count  = 0;
+  state.set_deregistered(mm5g_state_t::deregistered_substate_t::plmn_search);
+  reregistration_timer.run();
+}
+
+// TS 24.501 Sec 5.5.1.2.7: abort the registration procedure on T3510 expiry or lower layer failure, then retry
+// after T3511 (or T3502 once the attempt counter reaches its maximum).
+void nas_5g::abort_registration(const char* reason)
+{
+  if (state.get_state() != mm5g_state_t::state_t::registered_initiated) {
+    return;
+  }
+  t3510.stop();
+  if (registration_proc.is_busy()) {
+    registration_proc.run();
+  }
+  registration_attempt_counter++;
+  const uint32_t attempt = registration_attempt_counter;
+  state.set_deregistered(mm5g_state_t::deregistered_substate_t::plmn_search);
+  if (registration_attempt_counter < max_registration_attempts) {
+    t3511.run();
+  } else {
+    registration_attempt_counter = 0;
+    t3502.run();
+  }
+  logger.warning("Registration aborted (%s), attempt %d, retrying in %d ms",
+                 reason,
+                 attempt,
+                 t3511.is_running() ? t3511.duration() : t3502.duration());
+  srsran::console("Registration aborted (%s), retrying in %d s\n",
+                  reason,
+                  (t3511.is_running() ? t3511.duration() : t3502.duration()) / 1000);
 }
 
 /*******************************************************************************
@@ -1099,9 +1165,8 @@ int nas_5g::start_service_request()
 
 int nas_5g::reset_pdu_sessions()
 {
-  for (auto pdu_session : pdu_sessions) {
-    pdu_session.established    = false;
-    pdu_session.pdu_session_id = 0;
+  for (auto& pdu_session : pdu_sessions) {
+    pdu_session.established = false;
   }
   return SRSRAN_SUCCESS;
 }

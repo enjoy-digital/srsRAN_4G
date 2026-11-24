@@ -90,6 +90,9 @@ void mac_nr::reset()
   logger.info("Resetting MAC-NR");
 
   // TODO: Implement all the steps in 5.9
+  // Forget the C-RNTI too: the next RA after an RRC release or a failed setup is a new contention based access, its
+  // Msg3 must not carry a C-RNTI MAC CE and Msg4 is addressed to the temporary C-RNTI.
+  rntis.reset();
   proc_bsr.reset();
   proc_sr.reset();
   proc_ra.reset();

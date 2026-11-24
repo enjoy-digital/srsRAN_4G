@@ -52,6 +52,8 @@ public:
   virtual int      write_pdu(srsran::unique_byte_buffer_t pdu) = 0;
   virtual int      get_k_amf(srsran::as_key_t& k_amf)          = 0;
   virtual uint32_t get_ul_nas_count()                          = 0;
+  virtual void     connection_request_completed(bool success)  = 0;
+  virtual void     left_rrc_connected()                        = 0;
 };
 
 class nas_5g_interface_procedures

@@ -255,11 +255,14 @@ void rrc_nr::setup_request_proc::then(const srsran::proc_state_t& result)
     logger.warning("Could not finish setup request. Deallocating dedicatedInfoNAS PDU");
     dedicated_info_nas.reset();
     rrc_handle.dedicated_info_nas.reset();
+    if (rrc_handle.state != RRC_NR_STATE_CONNECTED) {
+      // TS 38.331 Sec 5.3.3.7 (T300 expiry): reset MAC and re-establish RLC, so that a new attempt starts clean
+      rrc_handle.rrc_release();
+    }
   } else {
     Info("Finished connection request procedure successfully.");
   }
-  // TODO: signal back to NAS
-  // rrc_handle.nas->connection_request_completed(result.is_success());
+  rrc_handle.nas->connection_request_completed(result.is_success());
 }
 
 srsran::proc_outcome_t rrc_nr::setup_request_proc::react(const cell_selection_proc::cell_selection_complete_ev& e)

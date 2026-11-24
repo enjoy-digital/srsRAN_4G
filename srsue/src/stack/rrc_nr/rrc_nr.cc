@@ -131,6 +131,12 @@ const char* rrc_nr::get_rb_name(uint32_t lcid)
 void rrc_nr::timer_expired(uint32_t timeout_id)
 {
   logger.debug("Handling Timer Expired");
+  if (timeout_id == t300.id()) {
+    // TS 38.331 Sec 5.3.3.7: the setup request procedure waits for T300, step it so that it completes with an error
+    logger.warning("T300 expired, RRC connection establishment failed");
+    setup_req_proc.run();
+    return;
+  }
   if (timeout_id == sim_measurement_timer.id() && rrc_eutra != nullptr) {
     logger.debug("Triggered simulated measurement");
 
@@ -226,7 +232,11 @@ void rrc_nr::in_sync() {}
 void rrc_nr::out_of_sync() {}
 
 // MAC interface
-void rrc_nr::run_tti(uint32_t tti) {}
+void rrc_nr::run_tti(uint32_t tti)
+{
+  // Step the ongoing procedures, e.g. the setup request procedure completes once T300 stops
+  callback_list.run();
+}
 
 // PDCP interface
 void rrc_nr::write_pdu(uint32_t lcid, srsran::unique_byte_buffer_t pdu)
@@ -388,7 +398,9 @@ void rrc_nr::set_phy_default_config()
 
 void rrc_nr::handle_sib1(const sib1_s& sib1)
 {
-  if (meas_cells.serving_cell().has_sib1()) {
+  // A new cell selection (e.g. a retry after a failed connection establishment) re-applies the MIB configuration to
+  // the PHY, so it needs the SIB1 configuration again even when SIB1 was already received.
+  if (meas_cells.serving_cell().has_sib1() and not cell_selector.is_busy()) {
     logger.info("SIB1 already processed");
     return;
   }
@@ -964,6 +976,11 @@ void rrc_nr::rrc_release()
   pdcp->reset();
   mac->reset();
   lcid_drb.clear();
+
+  // The MAC reset removed all the logical channels, set up SRB0 again for the next connection establishment (RLC
+  // re-creates it on reset too)
+  logical_channel_config_t lch = {};
+  mac->setup_lcid(lch);
 
   // Apply actions only applicable in SA mode
   if (rrc_eutra == nullptr) {
@@ -2285,6 +2302,21 @@ void rrc_nr::handle_rrc_release(const asn1::rrc_nr::rrc_release_s& msg)
   srsran::console("Received RRC Release\n");
 
   rrc_release();
+
+  if (rrc_eutra == nullptr) {
+    // SA: back to RRC IDLE with the common PHY configuration (the next cell selection re-applies MIB and SIB1), and
+    // let NAS know so that it can recover the connection
+    state                             = RRC_NR_STATE_IDLE;
+    const srsran_carrier_nr_t carrier = phy_cfg.carrier;
+    const auto                ssb     = phy_cfg.ssb;
+    const auto                duplex  = phy_cfg.duplex;
+    set_phy_default_config();
+    phy_cfg.carrier = carrier;
+    phy_cfg.ssb     = ssb;
+    phy_cfg.duplex  = duplex;
+    phy_cfg_state   = PHY_CFG_STATE_NONE;
+    nas->left_rrc_connected();
+  }
 }
 
 // Security helper used by Security Mode Command and Mobility handling routines
