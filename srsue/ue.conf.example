@@ -401,10 +401,13 @@ enable = false
 # PHY NR specific configuration options
 #
 # store_pdsch_ko:       Dumps the PDSCH baseband samples into a file on KO reception
+# pdsch_cb_threads:     Helper threads decoding the code blocks of a PDSCH transport block in parallel
+#                       (0: none). Shortens the decoding of large transport blocks on a multi-core host.
 #
 #####################################################################
 [phy.nr]
 #store_pdsch_ko = false
+#pdsch_cb_threads = 0
 
 #####################################################################
 # CFR configuration options

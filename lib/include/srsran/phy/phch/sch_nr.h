@@ -67,7 +67,8 @@ typedef struct SRSRAN_API {
   bool     disable_simd;
   bool     decoder_use_flooded;
   float    decoder_scaling_factor;
-  uint32_t max_nof_iter; ///< Maximum number of LDPC iterations
+  uint32_t max_nof_iter;   ///< Maximum number of LDPC iterations
+  uint32_t nof_cb_threads; ///< Helper threads decoding the code blocks of a TB in parallel (0: none)
 } srsran_sch_nr_args_t;
 
 /**

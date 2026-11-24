@@ -428,6 +428,10 @@ static int parse_args(all_args_t* args, int argc, char* argv[])
       bpo::value<bool>(&args->phy.nr_store_pdsch_ko)->default_value(false),
       "Dumps the PDSCH baseband samples into a file on KO reception.")
 
+    ("phy.nr.pdsch_cb_threads",
+      bpo::value<uint32_t>(&args->phy.nr_pdsch_cb_threads)->default_value(0),
+      "Helper threads decoding the code blocks of a PDSCH transport block in parallel (0: none, max 8).")
+
     // UE simulation args
     ("sim.airplane_t_on_ms",
      bpo::value<int>(&args->stack.nas.sim.airplane_t_on_ms)->default_value(-1),

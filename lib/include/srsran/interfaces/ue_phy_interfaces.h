@@ -87,7 +87,8 @@ struct phy_args_t {
   float       force_ul_amplitude           = 0.0f;
   bool        detect_cp                    = false;
 
-  bool nr_store_pdsch_ko = false;
+  bool     nr_store_pdsch_ko   = false;
+  uint32_t nr_pdsch_cb_threads = 0;
 
   float    in_sync_rsrp_dbm_th    = -130.0f;
   float    in_sync_snr_db_th      = 1.0f;

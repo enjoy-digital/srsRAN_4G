@@ -14,6 +14,7 @@ static srsran_carrier_nr_t carrier = SRSRAN_DEFAULT_CARRIER_NR;
 static uint32_t            n_prb     = 0;  // Set to 0 for steering
 static uint32_t            mcs       = 30; // Set to 30 for steering
 static uint32_t            rv        = 4;  // Set to 30 for steering
+static uint32_t            nof_cb_threads = 0;
 static srsran_sch_cfg_nr_t pdsch_cfg = {};
 
 static void usage(char* prog)
@@ -26,13 +27,14 @@ static void usage(char* prog)
   printf("\t-T Provide MCS table (64qam, 256qam, 64qamLowSE) [Default %s]\n",
          srsran_mcs_table_to_str(pdsch_cfg.sch_cfg.mcs_table));
   printf("\t-L Provide number of layers [Default %d]\n", carrier.max_mimo_layers);
+  printf("\t-t Helper threads decoding the code blocks in parallel [Default %d]\n", nof_cb_threads);
   printf("\t-v [set srsran_verbose to debug, default none]\n");
 }
 
 int parse_args(int argc, char** argv)
 {
   int opt;
-  while ((opt = getopt(argc, argv, "PpmTLvr")) != -1) {
+  while ((opt = getopt(argc, argv, "PpmTLvrt")) != -1) {
     switch (opt) {
       case 'P':
         carrier.nof_prb = (uint32_t)strtol(argv[optind], NULL, 10);
@@ -51,6 +53,9 @@ int parse_args(int argc, char** argv)
         break;
       case 'L':
         carrier.max_mimo_layers = (uint32_t)strtol(argv[optind], NULL, 10);
+        break;
+      case 't':
+        nof_cb_threads = (uint32_t)strtol(argv[optind], NULL, 10);
         break;
       case 'v':
         increase_srsran_verbose_level();
@@ -91,6 +96,7 @@ int main(int argc, char** argv)
   args.disable_simd           = false;
   args.decoder_use_flooded    = false;
   args.decoder_scaling_factor = 0.8;
+  args.nof_cb_threads         = nof_cb_threads;
   args.max_nof_iter           = 20;
   if (srsran_sch_nr_init_tx(&sch_nr_tx, &args) < SRSRAN_SUCCESS) {
     ERROR("Error initiating SCH NR for Tx");

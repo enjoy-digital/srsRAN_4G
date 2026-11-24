@@ -2,6 +2,7 @@
 // SPDX-License-Identifier: AGPL-3.0-or-later
 
 #include "srsran/phy/phch/sch_nr.h"
+
 #include "srsran/config.h"
 #include "srsran/phy/fec/cbsegm.h"
 #include "srsran/phy/fec/ldpc/ldpc_common.h"
@@ -262,6 +263,227 @@ int srsran_sch_nr_init_tx(srsran_sch_nr_t* q, const srsran_sch_nr_args_t* args)
   return SRSRAN_SUCCESS;
 }
 
+/* ---- Parallel code block decoding ----
+ * The code blocks of a transport block are independent: with srsran_sch_nr_args_t.nof_cb_threads > 0, a pool of
+ * helper threads, shared by all the SCH objects of the process, decodes them along with the calling thread. Each
+ * helper has its own decoders, rate dematcher and CRC. One transport block is served at a time: a caller that
+ * finds the pool busy decodes its code blocks itself, as without the pool. */
+#include <pthread.h>
+#include <sched.h>
+#include <stdlib.h>
+#include <string.h>
+
+typedef struct {
+  uint32_t r;
+  int8_t*  input;
+  uint32_t E;
+  int8_t*  rm_buffer;
+  int      ret; /* decoder result: iterations if CRC matched, 0 otherwise */
+  int      err;
+} sch_nr_cb_job_t;
+
+typedef struct {
+  const srsran_sch_nr_tb_info_t* cfg;
+  const srsran_sch_tb_t*         tb;
+  const srsran_crc_t*            crc;
+  srsran_ldpc_decoder_t*         decoder;
+  sch_nr_cb_job_t*               jobs;
+  uint32_t                       nof_jobs;
+  uint32_t                       next;  /* atomic: next job */
+  uint32_t                       done;  /* atomic: finished jobs */
+  uint32_t                       users; /* atomic: helpers holding the batch */
+} sch_nr_cb_batch_t;
+
+static pthread_mutex_t            sch_pool_mtx         = PTHREAD_MUTEX_INITIALIZER;
+static pthread_cond_t             sch_pool_cv          = PTHREAD_COND_INITIALIZER;
+static pthread_once_t             sch_pool_once        = PTHREAD_ONCE_INIT;
+static sch_nr_cb_batch_t*         sch_pool_batch       = NULL;
+static uint64_t                   sch_pool_gen         = 0;
+static int                        sch_pool_nof_threads = 0;
+static int                        sch_pool_cfg_threads = 0;
+static srsran_ldpc_decoder_type_t sch_pool_dec_type;
+static float                      sch_pool_dec_scaling  = 0.8f;
+static uint32_t                   sch_pool_dec_max_iter = 0;
+
+static int sch_nr_cb_exec(const sch_nr_cb_batch_t* b,
+                          sch_nr_cb_job_t*         job,
+                          srsran_ldpc_rm_t*        rm,
+                          srsran_ldpc_decoder_t*   decoder,
+                          uint8_t*                 temp_cb,
+                          srsran_crc_t*            crc)
+{
+  const srsran_sch_nr_tb_info_t* cfg = b->cfg;
+  const srsran_sch_tb_t*         tb  = b->tb;
+  int                            n_llr =
+      srsran_ldpc_rm_rx_c(rm, job->input, job->rm_buffer, job->E, cfg->F, cfg->bg, cfg->Z, tb->rv, tb->mod, cfg->Nref);
+  if (n_llr < SRSRAN_SUCCESS) {
+    ERROR("Error in LDPC rate mateching");
+    return SRSRAN_ERROR;
+  }
+  int ret = srsran_ldpc_decoder_decode_crc_c(decoder, job->rm_buffer, temp_cb, n_llr, crc);
+  if (ret < SRSRAN_SUCCESS) {
+    ERROR("Error decoding CB");
+    return SRSRAN_ERROR;
+  }
+  job->ret                          = ret;
+  tb->softbuffer.rx->cb_crc[job->r] = (ret != 0);
+  if (ret != 0) {
+    srsran_bit_pack_vector(temp_cb, tb->softbuffer.rx->data[job->r], cfg->Kp - cfg->L_cb);
+  }
+  return SRSRAN_SUCCESS;
+}
+
+static void* sch_nr_pool_thread(void* arg)
+{
+  (void)arg;
+  srsran_ldpc_rm_t rm = {};
+  if (srsran_ldpc_rm_rx_init_c(&rm) < SRSRAN_SUCCESS) {
+    return NULL;
+  }
+  uint8_t* temp_cb = srsran_vec_u8_malloc(SRSRAN_LDPC_MAX_LEN_CB * 8);
+  if (!temp_cb) {
+    return NULL;
+  }
+  /* All the decoders at start, as srsran_sch_nr_init_rx() does: none is created on the slot deadline. */
+  srsran_ldpc_decoder_t* dec[2][MAX_LIFTSIZE + 1];
+  memset(dec, 0, sizeof(dec));
+  for (uint16_t ls = 0; ls <= MAX_LIFTSIZE; ls++) {
+    if (get_ls_index(ls) == VOID_LIFTSIZE) {
+      continue;
+    }
+    for (uint32_t bgi = 0; bgi < 2; bgi++) {
+      srsran_ldpc_decoder_args_t a = {};
+      a.type                       = sch_pool_dec_type;
+      a.ls                         = ls;
+      a.bg                         = bgi == 0 ? BG1 : BG2;
+      a.scaling_fctr               = sch_pool_dec_scaling;
+      a.max_nof_iter               = sch_pool_dec_max_iter;
+      srsran_ldpc_decoder_t* d     = SRSRAN_MEM_ALLOC(srsran_ldpc_decoder_t, 1);
+      if (d) {
+        SRSRAN_MEM_ZERO(d, srsran_ldpc_decoder_t, 1);
+        if (srsran_ldpc_decoder_init(d, &a) < SRSRAN_SUCCESS) {
+          free(d);
+          d = NULL;
+        }
+      }
+      dec[bgi][ls] = d;
+    }
+  }
+  srsran_crc_t crc;
+  uint64_t     seen = 0;
+  for (;;) {
+    pthread_mutex_lock(&sch_pool_mtx);
+    while (sch_pool_batch == NULL || sch_pool_gen == seen) {
+      pthread_cond_wait(&sch_pool_cv, &sch_pool_mtx);
+    }
+    sch_nr_cb_batch_t* b = sch_pool_batch;
+    seen                 = sch_pool_gen;
+    __atomic_fetch_add(&b->users, 1, __ATOMIC_ACQ_REL);
+    pthread_mutex_unlock(&sch_pool_mtx);
+
+    for (;;) {
+      uint32_t k = __atomic_fetch_add(&b->next, 1, __ATOMIC_ACQ_REL);
+      if (k >= b->nof_jobs) {
+        break;
+      }
+      sch_nr_cb_job_t* job = &b->jobs[k];
+      uint32_t         bgi = (b->cfg->bg == BG1) ? 0 : 1;
+      uint32_t         ls  = b->cfg->Z;
+      memcpy(&crc, b->crc, sizeof(crc));
+      job->err = (dec[bgi][ls] == NULL) ? SRSRAN_ERROR : sch_nr_cb_exec(b, job, &rm, dec[bgi][ls], temp_cb, &crc);
+      __atomic_fetch_add(&b->done, 1, __ATOMIC_ACQ_REL);
+    }
+    __atomic_fetch_sub(&b->users, 1, __ATOMIC_ACQ_REL);
+  }
+  return NULL;
+}
+
+static void sch_nr_pool_init(void)
+{
+  int n = sch_pool_cfg_threads;
+  if (n <= 0) {
+    return;
+  }
+  if (n > 8) {
+    n = 8;
+  }
+  /* Same scheduling as the PHY worker that decodes first (the helpers are on its deadline). */
+  int                policy = SCHED_OTHER;
+  struct sched_param sp     = {};
+  pthread_getschedparam(pthread_self(), &policy, &sp);
+  for (int i = 0; i < n; i++) {
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    if (policy != SCHED_OTHER) {
+      pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+      pthread_attr_setschedpolicy(&attr, policy);
+      pthread_attr_setschedparam(&attr, &sp);
+    }
+    pthread_t th;
+    if (pthread_create(&th, &attr, sch_nr_pool_thread, NULL) != 0 &&
+        pthread_create(&th, NULL, sch_nr_pool_thread, NULL) != 0) {
+      pthread_attr_destroy(&attr);
+      break;
+    }
+    pthread_setname_np(th, "SCH_CB");
+    pthread_detach(th);
+    pthread_attr_destroy(&attr);
+    sch_pool_nof_threads++;
+  }
+}
+
+static int sch_nr_run_batch(srsran_sch_nr_t* q, sch_nr_cb_batch_t* b)
+{
+  b->next     = 0;
+  b->done     = 0;
+  b->users    = 0;
+  bool posted = false;
+  pthread_once(&sch_pool_once, sch_nr_pool_init);
+  if (b->nof_jobs > 1) {
+    if (sch_pool_nof_threads > 0) {
+      pthread_mutex_lock(&sch_pool_mtx);
+      if (sch_pool_batch == NULL) {
+        sch_pool_batch = b;
+        sch_pool_gen++;
+        posted = true;
+        pthread_cond_broadcast(&sch_pool_cv);
+      }
+      pthread_mutex_unlock(&sch_pool_mtx);
+    }
+  }
+
+  /* The caller decodes as well, with its own objects (and its own copy of the CRC, which the helpers copy). */
+  srsran_crc_t crc;
+  memcpy(&crc, b->crc, sizeof(crc));
+  for (;;) {
+    uint32_t k = __atomic_fetch_add(&b->next, 1, __ATOMIC_ACQ_REL);
+    if (k >= b->nof_jobs) {
+      break;
+    }
+    b->jobs[k].err = sch_nr_cb_exec(b, &b->jobs[k], &q->rx_rm, b->decoder, q->temp_cb, &crc);
+    __atomic_fetch_add(&b->done, 1, __ATOMIC_ACQ_REL);
+  }
+
+  if (posted) {
+    while (__atomic_load_n(&b->done, __ATOMIC_ACQUIRE) < b->nof_jobs) {
+      sched_yield();
+    }
+    pthread_mutex_lock(&sch_pool_mtx);
+    sch_pool_batch = NULL;
+    pthread_mutex_unlock(&sch_pool_mtx);
+    while (__atomic_load_n(&b->users, __ATOMIC_ACQUIRE) > 0) {
+      sched_yield();
+    }
+  }
+
+  for (uint32_t k = 0; k < b->nof_jobs; k++) {
+    if (b->jobs[k].err < SRSRAN_SUCCESS) {
+      return SRSRAN_ERROR;
+    }
+  }
+  return SRSRAN_SUCCESS;
+}
+
 int srsran_sch_nr_init_rx(srsran_sch_nr_t* q, const srsran_sch_nr_args_t* args)
 {
   int ret = sch_nr_init_common(q);
@@ -286,7 +508,13 @@ int srsran_sch_nr_init_rx(srsran_sch_nr_t* q, const srsran_sch_nr_args_t* args)
 
   // If the scaling factor is not provided use a default value that allows decoding all possible combinations of nPRB
   // and MCS indexes for all possible MCS tables
-  float scaling_factor = isnormal(args->decoder_scaling_factor) ? args->decoder_scaling_factor : 0.8f;
+  float scaling_factor  = isnormal(args->decoder_scaling_factor) ? args->decoder_scaling_factor : 0.8f;
+  sch_pool_dec_type     = decoder_type;
+  sch_pool_dec_scaling  = scaling_factor;
+  sch_pool_dec_max_iter = args->max_nof_iter;
+  if (args->nof_cb_threads > 0) {
+    sch_pool_cfg_threads = (int)args->nof_cb_threads;
+  }
 
   // Iterate over all possible lifting sizes
   for (uint16_t ls = 0; ls <= MAX_LIFTSIZE; ls++) {
@@ -589,8 +817,16 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
   uint32_t cb_ok = 0;
   res->crc       = false;
 
-  // For each code block...
-  uint32_t j = 0;
+  // Select CB or TB early stop CRC
+  srsran_crc_t* crc = (cfg.L_tb == 16) ? &q->crc_tb_16 : &q->crc_tb_24;
+  if (cfg.L_cb) {
+    crc = &q->crc_cb;
+  }
+
+  // Collect the code blocks to decode with their soft bits, in order (E depends on the rank of the CB)
+  sch_nr_cb_job_t jobs[SRSRAN_SCH_NR_MAX_NOF_CB_LDPC];
+  uint32_t        nof_jobs = 0;
+  uint32_t        j        = 0;
   for (uint32_t r = 0; r < cfg.C; r++) {
     bool    decoded   = tb->softbuffer.rx->cb_crc[r];
     int8_t* rm_buffer = (int8_t*)tb->softbuffer.tx->buffer_b[r];
@@ -620,7 +856,6 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
       continue;
     }
 
-    // LDPC Rate matching
     SCH_INFO_RX("RM CB %d: E=%d; F=%d; BG=%d; Z=%d; RV=%d; Qm=%d; Nref=%d;",
                 r,
                 E,
@@ -630,49 +865,35 @@ static int sch_nr_decode(srsran_sch_nr_t*        q,
                 tb->rv,
                 cfg.Qm,
                 cfg.Nref);
-    int n_llr =
-        srsran_ldpc_rm_rx_c(&q->rx_rm, input_ptr, rm_buffer, E, cfg.F, cfg.bg, cfg.Z, tb->rv, tb->mod, cfg.Nref);
-    if (n_llr < SRSRAN_SUCCESS) {
-      ERROR("Error in LDPC rate mateching");
-      return SRSRAN_ERROR;
-    }
+    sch_nr_cb_job_t job = {};
+    job.r               = r;
+    job.input           = input_ptr;
+    job.E               = E;
+    job.rm_buffer       = rm_buffer;
+    jobs[nof_jobs++]    = job;
+    input_ptr += E;
+  }
 
-    // Select CB or TB early stop CRC
-    srsran_crc_t* crc = (cfg.L_tb == 16) ? &q->crc_tb_16 : &q->crc_tb_24;
-    if (cfg.L_cb) {
-      crc = &q->crc_cb;
-    }
+  // Rate dematching and LDPC decoding of the code blocks (in parallel with helper threads, when enabled)
+  sch_nr_cb_batch_t batch = {};
+  batch.cfg               = &cfg;
+  batch.tb                = tb;
+  batch.crc               = crc;
+  batch.decoder           = decoder;
+  batch.jobs              = jobs;
+  batch.nof_jobs          = nof_jobs;
+  if (sch_nr_run_batch(q, &batch) < SRSRAN_SUCCESS) {
+    return SRSRAN_ERROR;
+  }
 
-    // Decode. if CRC=KO, then ret=0
-    int ret = srsran_ldpc_decoder_decode_crc_c(decoder, rm_buffer, q->temp_cb, n_llr, crc);
-    if (ret < SRSRAN_SUCCESS) {
-      ERROR("Error decoding CB");
-      return SRSRAN_ERROR;
-    }
-
-    // Compute number of iterations
-    uint32_t n_iter_cb = (ret == 0) ? decoder->max_nof_iter : (uint32_t)ret;
+  for (uint32_t k = 0; k < nof_jobs; k++) {
+    uint32_t n_iter_cb = (jobs[k].ret == 0) ? decoder->max_nof_iter : (uint32_t)jobs[k].ret;
     nof_iter_sum += n_iter_cb;
-
-    // Check if CB is all zeros
-    uint32_t cb_len = cfg.Kp - cfg.L_cb;
-
-    tb->softbuffer.rx->cb_crc[r] = (ret != 0);
-    SCH_INFO_RX("CB %d/%d iter=%d CRC=%s", r, cfg.C, n_iter_cb, tb->softbuffer.rx->cb_crc[r] ? "OK" : "KO");
-
-    // CB Debug trace
-    if (SRSRAN_DEBUG_ENABLED && get_srsran_verbose_level() >= SRSRAN_VERBOSE_DEBUG && !is_handler_registered()) {
-      DEBUG("CB %d/%d:", r, cfg.C);
-      srsran_vec_fprint_hex(stdout, q->temp_cb, cb_len);
-    }
-
-    // Pack and count CRC OK only if CRC is match
-    if (tb->softbuffer.rx->cb_crc[r]) {
-      srsran_bit_pack_vector(q->temp_cb, tb->softbuffer.rx->data[r], cb_len);
+    SCH_INFO_RX(
+        "CB %d/%d iter=%d CRC=%s", jobs[k].r, cfg.C, n_iter_cb, tb->softbuffer.rx->cb_crc[jobs[k].r] ? "OK" : "KO");
+    if (tb->softbuffer.rx->cb_crc[jobs[k].r]) {
       cb_ok++;
     }
-
-    input_ptr += E;
   }
   // Set average number of iterations
   res->avg_iter = (float)nof_iter_sum / (float)cfg.C;

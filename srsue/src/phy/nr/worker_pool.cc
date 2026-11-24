@@ -26,11 +26,12 @@ bool worker_pool::init(const phy_args_nr_t& args, srsran::phy_common_interface& 
   }
 
   // Set NR arguments
-  phy_state.args.nof_carriers     = args.nof_carriers;
-  phy_state.args.dl.nof_max_prb   = args.max_nof_prb;
-  phy_state.args.dl.pdsch.max_prb = args.max_nof_prb;
-  phy_state.args.ul.nof_max_prb   = args.max_nof_prb;
-  phy_state.args.ul.pusch.max_prb = args.max_nof_prb;
+  phy_state.args.nof_carriers                = args.nof_carriers;
+  phy_state.args.dl.nof_max_prb              = args.max_nof_prb;
+  phy_state.args.dl.pdsch.max_prb            = args.max_nof_prb;
+  phy_state.args.ul.nof_max_prb              = args.max_nof_prb;
+  phy_state.args.ul.pusch.max_prb            = args.max_nof_prb;
+  phy_state.args.dl.pdsch.sch.nof_cb_threads = args.pdsch_cb_threads;
 
   // Skip init of workers if no NR carriers
   if (phy_state.args.nof_carriers == 0) {

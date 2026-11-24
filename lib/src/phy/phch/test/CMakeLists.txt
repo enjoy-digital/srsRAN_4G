@@ -655,6 +655,7 @@ add_nr_test(sch_nr_test sch_nr_test -P 52 -p 20 -r 0)
 add_nr_test(sch_nr_test sch_nr_test -P 52 -p 20 -r 1)
 add_nr_test(sch_nr_test sch_nr_test -P 52 -p 52 -r 0)
 add_nr_test(sch_nr_test sch_nr_test -P 52 -p 52 -r 1)
+add_nr_test(sch_nr_cb_threads_test sch_nr_test -t 2)
 
 add_executable(pdsch_nr_test pdsch_nr_test.c)
 target_link_libraries(pdsch_nr_test srsran_phy)

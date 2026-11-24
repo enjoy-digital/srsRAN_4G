@@ -209,6 +209,7 @@ struct phy_args_nr_t {
   std::set<uint32_t>     fixed_sr              = {1};
   uint32_t               fix_wideband_cqi      = 15; ///< Set to a non-zero value for fixing the wide-band CQI report
   bool                   store_pdsch_ko        = false;
+  uint32_t               pdsch_cb_threads      = 0;
   float                  trs_epre_ema_alpha    = 0.1f; ///< EPRE measurement exponential average alpha
   float                  trs_rsrp_ema_alpha    = 0.1f; ///< RSRP measurement exponential average alpha
   float                  trs_sinr_ema_alpha    = 0.1f; ///< SINR measurement exponential average alpha
