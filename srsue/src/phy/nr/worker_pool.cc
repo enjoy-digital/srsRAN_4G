@@ -72,6 +72,9 @@ void worker_pool::start_worker(sf_worker* w)
   pool.start_worker(w);
 }
 
+/// Slots without PRACH after a configuration, see set_config().
+static const uint32_t PRACH_HOLDOFF_AFTER_CFG_SLOTS = 20;
+
 sf_worker* worker_pool::wait_worker(uint32_t tti)
 {
   logger.set_context(tti);
@@ -87,8 +90,15 @@ sf_worker* worker_pool::wait_worker(uint32_t tti)
     }
   }
 
+  // No PRACH in the slots that follow a configuration, see set_config()
+  bool prach_allowed = true;
+  if (prach_holdoff_slots > 0) {
+    prach_holdoff_slots--;
+    prach_allowed = false;
+  }
+
   // Generate PRACH if ready
-  if (prach_buffer->is_ready_to_send(tti, pci, phy_state.get_tx_delay_ms())) {
+  if (prach_allowed and prach_buffer->is_ready_to_send(tti, pci, phy_state.get_tx_delay_ms())) {
     prach_ptr = prach_buffer->generate(phy_state.get_ul_cfo() / 15000, &prach_nof_sf, &prach_target_power);
 
     // Scale signal to maximum
@@ -211,6 +221,13 @@ bool worker_pool::set_config(const srsran::phy_cfg_nr_t& new_cfg)
     // Update configuration
     cfg = new_cfg;
   }
+
+  // The configuration that precedes a random access (SIB1, then the common configuration) comes right after the stack
+  // held the PHY up for several milliseconds (6 to 7.5 ms measured). The slots are then processed late until the
+  // real-time thread has caught up, about 10 ms, and what is transmitted meanwhile goes out late, or not at all with a
+  // radio that drops late samples. The first preamble was generated 5 ms after the configuration: it was lost, and
+  // the next one came a RAR window later. Skip the PRACH occasions of the next slots.
+  prach_holdoff_slots = PRACH_HOLDOFF_AFTER_CFG_SLOTS;
 
   // If the carrier has changed, the configuration cannot be set from the real-time thread
   if (not carrier_equal) {

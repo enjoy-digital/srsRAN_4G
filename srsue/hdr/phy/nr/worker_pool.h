@@ -4,6 +4,7 @@
 #ifndef SRSUE_NR_WORKER_POOL_H
 #define SRSUE_NR_WORKER_POOL_H
 
+#include <atomic>
 #include "sf_worker.h"
 #include "srsran/common/thread_pool.h"
 #include "srsue/hdr/phy/prach.h"
@@ -21,6 +22,8 @@ private:
   std::unique_ptr<prach>                   prach_buffer       = nullptr;
   uint32_t                                 prach_nof_sf       = 0;
   uint32_t                                 prach_sf_count     = 0;
+  /// Slots left before a PRACH may be sent, see set_config().
+  std::atomic<uint32_t>                    prach_holdoff_slots = {0};
   cf_t*                                    prach_ptr          = nullptr;
   float                                    prach_target_power = 0.0f;
   uint32_t                                 sf_sz              = 0;
