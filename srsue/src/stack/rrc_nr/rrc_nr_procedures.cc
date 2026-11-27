@@ -463,8 +463,17 @@ rrc_nr::cell_selection_proc::handle_cell_search_result(const rrc_interface_phy_n
   make_phy_search_space0_cfg(&phy_cfg.pdcch.search_space[0]);
   phy_cfg.pdcch.search_space_present[0] = true;
 
-  // Set dummy offset to pass PRACH config check, real value is provided in SIB1
-  phy_cfg.prach.freq_offset = 1;
+  // Set dummy offset to pass PRACH config check, real value is provided in SIB1. The check wants at least the offset
+  // of the NR carrier in the LTE cell the PRACH is generated in: 1 PRB for 52 PRB (10 MHz), 3 for 106 (20 MHz). With
+  // 1, the configuration failed at 20 MHz, and the random access that followed was not seen by the gNB.
+  {
+    srsran_cell_t lte_cell = {};
+    uint32_t      min_offset = 1;
+    if (srsran_carrier_to_cell(&phy_cfg.carrier, &lte_cell) == SRSRAN_SUCCESS && phy_cfg.carrier.nof_prb > lte_cell.nof_prb) {
+      min_offset = std::max(min_offset, (phy_cfg.carrier.nof_prb - lte_cell.nof_prb) / 2);
+    }
+    phy_cfg.prach.freq_offset = min_offset;
+  }
 
   // Update PHY configuration
   rrc_handle.phy_cfg_state = PHY_CFG_STATE_SA_MIB_CFG;
