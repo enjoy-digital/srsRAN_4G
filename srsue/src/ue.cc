@@ -75,6 +75,7 @@ int ue::init(const all_args_t& args_)
   phy_args_nr.log                  = args.phy.log;
   phy_args_nr.store_pdsch_ko       = args.phy.nr_store_pdsch_ko;
   phy_args_nr.pdsch_cb_threads     = args.phy.nr_pdsch_cb_threads;
+  phy_args_nr.sa_tx_delay_ms       = args.phy.nr_sa_tx_delay_ms;
   phy_args_nr.srate_hz             = args.rf.srate_hz;
 
   // init layers

@@ -37,8 +37,9 @@ bool sync_sa::init(const args_t& args, stack_interface_phy_nr* stack_, srsran::r
     return false;
   }
 
-  // SA: the workers transmit NR_SA_TX_DELAY_MS after the received slot (see last_rx_time in run_slot)
-  workers.set_tx_delay_ms(NR_SA_TX_DELAY_MS);
+  // SA: the workers transmit tx_delay_ms after the received slot (see last_rx_time in run_slot)
+  tx_delay_ms = std::max(3U, std::min(6U, args.tx_delay_ms));
+  workers.set_tx_delay_ms(tx_delay_ms);
 
   // Cell bandwidth must be provided at init so set now sampling rate
   radio->set_rx_srate(args.srate_hz);
@@ -356,7 +357,7 @@ void sync_sa::run_state_cell_camping()
   context.sf_idx     = tti;
   context.worker_ptr = nr_worker;
   context.last       = true; // Set last if standalone
-  last_rx_time.add(NR_SA_TX_DELAY_MS * 1e-3);
+  last_rx_time.add(tx_delay_ms * 1e-3);
   context.tx_time.copy(last_rx_time);
   // Apply current TA
   context.tx_time.sub((double)ta.get_sec());

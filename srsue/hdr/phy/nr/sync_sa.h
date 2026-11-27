@@ -4,6 +4,7 @@
 #ifndef SRSUE_SYNC_NR_SA_H
 #define SRSUE_SYNC_NR_SA_H
 
+#include "srsran/common/common.h"
 #include "cell_search.h"
 #include "slot_sync.h"
 #include "srsran/common/threads.h"
@@ -37,6 +38,7 @@ public:
     float                       cfo_alpha       = 0.0f; ///< CFO averaging alpha (0 means auto)
     int                         thread_priority = 1;
     int                         cpu_affinity    = -1; ///< CPU of the thread, -1 for any
+    uint32_t                    tx_delay_ms     = NR_SA_TX_DELAY_MS; ///< Slots between a received slot and its TX slot
 
     cell_search::args_t get_cell_search() const
     {
@@ -95,6 +97,7 @@ private:
   cf_t*                        rx_buffer = nullptr;
   double                       srate_hz  = 0; ///< Sampling rate in Hz
   uint32_t                     slot_sz   = 0; ///< Subframe size (1-ms)
+  uint32_t                     tx_delay_ms = NR_SA_TX_DELAY_MS; ///< Slots between a received slot and its TX slot
   uint32_t                     tti       = 0;
   srsran::tti_semaphore<void*> tti_semaphore;
   srsran::rf_timestamp_t       last_rx_time;

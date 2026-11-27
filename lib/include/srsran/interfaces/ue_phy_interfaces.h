@@ -4,6 +4,7 @@
 #ifndef SRSRAN_UE_PHY_INTERFACES_H
 #define SRSRAN_UE_PHY_INTERFACES_H
 
+#include "srsran/common/common.h"
 #include "srsran/srsran.h"
 
 #include "phy_interface_types.h"
@@ -89,6 +90,7 @@ struct phy_args_t {
 
   bool     nr_store_pdsch_ko   = false;
   uint32_t nr_pdsch_cb_threads = 0;
+  uint32_t nr_sa_tx_delay_ms   = NR_SA_TX_DELAY_MS;
 
   float    in_sync_rsrp_dbm_th    = -130.0f;
   float    in_sync_snr_db_th      = 1.0f;

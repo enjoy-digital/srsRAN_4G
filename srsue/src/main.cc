@@ -432,6 +432,11 @@ static int parse_args(all_args_t* args, int argc, char* argv[])
       bpo::value<uint32_t>(&args->phy.nr_pdsch_cb_threads)->default_value(0),
       "Helper threads decoding the code blocks of a PDSCH transport block in parallel (0: none, max 8).")
 
+    ("phy.nr.sa_tx_delay_ms",
+      bpo::value<uint32_t>(&args->phy.nr_sa_tx_delay_ms)->default_value(NR_SA_TX_DELAY_MS),
+      "SA: slots between a received slot and the slot its uplink is sent in (3 to 6). The time the PHY has to process a "
+      "slot; a larger value needs pusch min_k2 and pucch min_k1 at least as large on the gNB.")
+
     // UE simulation args
     ("sim.airplane_t_on_ms",
      bpo::value<int>(&args->stack.nas.sim.airplane_t_on_ms)->default_value(-1),

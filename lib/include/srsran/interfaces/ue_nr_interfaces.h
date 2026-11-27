@@ -4,6 +4,7 @@
 #ifndef SRSRAN_UE_NR_INTERFACES_H
 #define SRSRAN_UE_NR_INTERFACES_H
 
+#include "srsran/common/common.h"
 #include "srsran/common/interfaces_common.h"
 #include "srsran/common/phy_cfg_nr.h"
 #include "srsran/interfaces/mac_interface_types.h"
@@ -210,6 +211,7 @@ struct phy_args_nr_t {
   uint32_t               fix_wideband_cqi      = 15; ///< Set to a non-zero value for fixing the wide-band CQI report
   bool                   store_pdsch_ko        = false;
   uint32_t               pdsch_cb_threads      = 0;
+  uint32_t               sa_tx_delay_ms        = NR_SA_TX_DELAY_MS; /// SA: slots between a received slot and the slot it transmits in
   float                  trs_epre_ema_alpha    = 0.1f; ///< EPRE measurement exponential average alpha
   float                  trs_rsrp_ema_alpha    = 0.1f; ///< RSRP measurement exponential average alpha
   float                  trs_sinr_ema_alpha    = 0.1f; ///< SINR measurement exponential average alpha
