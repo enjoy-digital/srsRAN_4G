@@ -18,8 +18,10 @@ dl_harq_entity_nr::dl_harq_entity_nr(uint8_t                  cc_idx_,
   bcch_proc.init(-1);
   pthread_rwlock_init(&rwlock, NULL);
 
-  // Create default number of processes
-  for (uint32_t i = 0; i < cfg.nof_procs; i++) {
+  // Create all the processes now: each holds a soft buffer of about 1.4 MB. Created when the RRC setup raises the number
+  // of processes, they held the stack thread for about 9 ms (allocation and first touch of the pages, all locked in
+  // memory), and the PHY, which waits for the stack, transmitted late meanwhile.
+  for (uint32_t i = 0; i < SRSRAN_MAX_HARQ_PROC_DL_NR; i++) {
     harq_procs[i] = std::unique_ptr<dl_harq_process_nr>(new dl_harq_process_nr(this));
     if (!harq_procs.at(i)->init(i)) {
       logger.error("Error while initializing DL-HARQ process %d", i);
@@ -41,19 +43,10 @@ int32_t dl_harq_entity_nr::set_config(const srsran::dl_harq_cfg_nr_t& cfg_)
     return SRSRAN_ERROR;
   }
 
-  if (cfg_.nof_procs < cfg.nof_procs) {
-    // clear old processes if not needed
-    for (uint32_t i = cfg.nof_procs - 1; i < cfg_.nof_procs; i++) {
-      harq_procs[i] = nullptr;
-    }
-  } else {
-    // Add new processes
-    for (uint32_t i = cfg.nof_procs; i < cfg_.nof_procs; i++) {
-      harq_procs[i] = std::unique_ptr<dl_harq_process_nr>(new dl_harq_process_nr(this));
-      if (!harq_procs.at(i)->init(i)) {
-        logger.error("Error while initializing DL-HARQ process %d", i);
-        return SRSRAN_ERROR;
-      }
+  // All the processes exist (see the constructor): only the number in use changes. Reset the ones that leave use.
+  for (uint32_t i = cfg_.nof_procs; i < cfg.nof_procs; i++) {
+    if (harq_procs[i] != nullptr) {
+      harq_procs[i]->reset();
     }
   }
 
